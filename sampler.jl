@@ -1,26 +1,26 @@
 using Boltzmann
 using StatsBase
 
-function sample_hiddens(rbm::AbstractRBM{T,V,H}, v_miss::Array{T, 2},
-			obs_bias::Array{T, 2}, missing::Array{Int, 1}) where {T,V,H}
+function sample_hiddens(rbm::AbstractRBM{T,V,H}, v_miss::Array{T, 1},
+			obs_bias::Array{T, 1}, missing::Array{Int, 1}) where {T,V,H}
   signal = rbm.W[:, missing] * v_miss .+ rbm.hbias .+ obs_bias
   mean = rbm.activation(signal)
 
-  return Boltzmann.sample(H, mean)
+  return Boltzmann.sample(H, reshape(mean, :, 1))
 end
 
-function sample_visibles(rbm::AbstractRBM{T,V,H}, h_pos::Array{T, 2},
+function sample_visibles(rbm::AbstractRBM{T,V,H}, h_pos::Array{T, 1},
 			 missing::Array{Int, 1}) where {T,V,H}
   signal = rbm.W[:, missing]' * h_pos .+ rbm.vbias[missing]
   mean = rbm.activation(signal)
 
-  return Boltzmann.sample(V, mean)
+  return Boltzmann.sample(V, reshape(mean, :, 1))
 end
 
 function get_positive_term(rbm::AbstractRBM{T,V,H}, vis::Array{T, 2},
 			   missing::Array{Int, 2};
 			   n_gibbs = 1) where {T,V,H}
-  h_pos = []
+  h_pos = Array{typeof(vis[1]), 2}(size(rbm.W, 1), size(vis, 2))
   v_miss = Array{typeof(vis[1]), 2}(size(missing)...)
 
   for m = 1:size(missing,2), i = 1:n_gibbs
@@ -32,13 +32,13 @@ function get_positive_term(rbm::AbstractRBM{T,V,H}, vis::Array{T, 2},
 
     obs_bias = rbm.W[:, observed] * v_obs
 
-    h_pos = sample_hiddens(rbm, v_miss[:, m], obs_bias, miss)
-    v_miss[:, m] = sample_visibles(rbm, h_pos, miss)
+    h_pos[:, m] = sample_hiddens(rbm, v_miss[:, m], obs_bias, miss)
+    v_miss[:, m] = sample_visibles(rbm, h_pos[:, m], miss)
   end
 
   v_pos = deepcopy(vis)
   for i = 1:size(missing, 2)
-    v_pos[missing[:, i], :] = v_miss[:, i]
+    v_pos[missing[:, i], i] = v_miss[:, i]
   end
 
   v_pos, h_pos
