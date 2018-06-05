@@ -18,23 +18,28 @@ function sample_visibles(rbm::AbstractRBM{T,V,H}, h_pos::Array{T, 2},
 end
 
 function get_positive_term(rbm::AbstractRBM{T,V,H}, vis::Array{T, 2},
-			   missing::Array{Int, 1};
+			   missing::Array{Int, 2};
 			   n_gibbs = 1) where {T,V,H}
-  observed = setdiff(1:length(missing), missing)
-
-  v_obs = vis[observed, :]
-  v_miss = vis[missing, :]
-
-  obs_bias = rbm.W[:, observed] * v_obs
-
   h_pos = []
-  for i = 1:n_gibbs
-    h_pos = sample_hiddens(rbm, v_miss, obs_bias, missing)
-    v_miss = sample_visibles(rbm, h_pos, missing)
+  v_miss = Array{typeof(vis[1]), 2}(size(missing)...)
+
+  for m = 1:size(missing,2), i = 1:n_gibbs
+    miss = missing[:, m]
+    observed = setdiff(1:length(miss), miss)
+
+    v_obs = vis[observed, m]
+    v_miss[:, m] = vis[miss, m]
+
+    obs_bias = rbm.W[:, observed] * v_obs
+
+    h_pos = sample_hiddens(rbm, v_miss[:, m], obs_bias, miss)
+    v_miss[:, m] = sample_visibles(rbm, h_pos, miss)
   end
 
   v_pos = deepcopy(vis)
-  v_pos[missing, :] = v_miss
+  for i = 1:size(missing, 2)
+    v_pos[missing[:, i], :] = v_miss[:, i]
+  end
 
   v_pos, h_pos
 end
@@ -42,9 +47,9 @@ end
 function persistent_contdiv(rbm::AbstractRBM{T,V,H}, vis::Array{T, 2}, ctx::Dict) where {T,V,H}
   d = size(vis, 1)
   ratio = Boltzmann.@get(ctx, :ratio, 0.2)
-  missing = sample(1:d, Int(floor(d * ratio)), replace = false)
+  missing = hcat((sample(1:d, Int(floor(d * ratio)), replace = false) for i = 1:size(vis, 2))...)
   # corrupting data
-  vis[missing, :] = rand(length(missing), size(vis,2))
+  vis[missing, :] = 2 * rand(length(missing), size(vis,2)) - 1
 
   n_gibbs = Boltzmann.@get(ctx, :n_gibbs, 1)
   persistent_chain = Boltzmann.@get_array(ctx, :persistent_chain, size(vis), vis)
