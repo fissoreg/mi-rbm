@@ -30,17 +30,46 @@ batch_size = 40
 randomize = true
 n_gibbs = 5
 
-sigmas = [0.001]
-lrs = [0.00005] #5e-4, 1e-4, 5e-5, 1e-5]
+sigmas = [0.01]
+lrs = [0.001] #5e-4, 1e-4, 5e-5, 1e-5]
 bss = [100] #30, 20]
-gs = [1] #, 5]
+gs = [3] #, 5]
 
-ratios = [0.8] #, 0.05, 0.1, 0.2]
+ratios = [0.2] #, 0.05, 0.1, 0.2]
 
 X, Y = MNIST.traindata()
 X = reshape(X, 784, size(X, 3))[:, 1:ns]
+X = 255 * X
+#m = mean(X, 2)
+#s = mapslices(std, X, 2)
+#println(s)
+#s[s .< 0.0001] = 0.0001
+#println(s)
+##X = 2X - 1
+#X = (X .- m) ./ s
+#X[isnan.(X)] = 0
 
-X = 2X - 1
+nz = []
+for i=1:size(X,1)
+  push!(nz,find(x->x!=0,X[i,:]))
+end
+
+# Get normalized variables
+m = mean(X,2);
+X = X.-m;
+σ = zeros(size(X,1))
+for i=1:size(X,1)
+  if(!isempty(nz[i]))
+    σ[i] = std(X[i,nz[i]])
+  end
+end
+# σ = std(X,2);
+σ[find(x->x<50,σ)] = 50
+X = X ./ σ;
+X[find(x->isnan(x),X)] = 0;
+
+p = plot(reshape_mnist(X[:, 1:100]))
+savefig(p, "samples.png")
 
 pre = Dict(
   :in => [:rbm],
@@ -83,7 +112,7 @@ features = Dict(
 
 reconstructions = Dict(
   :ys => [(:rbm, :X)],
-  :transforms => [(rbm, X) -> reshape_mnist(generate(rbm, X[:,1:100], n_gibbs=1))],
+  :transforms => [(rbm, X) -> reshape_mnist(rbm.W' * rbm.W * X[:, 1:100])], #reshape_mnist(generate(rbm, X[:,1:100], n_gibbs=1))],
   :title => "Reconstructions",
   :ticks => nothing
 )
@@ -117,12 +146,13 @@ chain = Dict(
 )
 
 println(batch_size)
-rbm = IsingRBM(d, nh; sigma = sigma, X = X)
+rbm = RBM(Float64, Distributions.Normal, Boltzmann.IsingSpin, Boltzmann.IsingActivation, d, nh; sigma = sigma)
+#rbm = GRBM(d, nh; sigma = sigma)#, X = X)
 
 # getting the reporter
 vr = VisualReporter(rbm, div(ns, batch_size) - 1, [weights, PL, re, SV, features, reconstructions, chain], pre = pre, init=Dict(:X => X, :persistent_chain => X[:, 1:batch_size]))
 
-try
+#try
 
 fit(rbm, X;
   n_epochs=n_epochs,
@@ -138,7 +168,7 @@ fit(rbm, X;
   n_gibbs = n_gibbs
 )
 
-filename = "log/Ising_$(ratio)_$(lr)_$(sigma)_$(batch_size)_$(n_gibbs)"
+filename = "log/gaussian_$(ratio)_$(lr)_$(sigma)_$(batch_size)_$(n_gibbs)"
 
 mp4(vr.anim, "$filename.mp4", fps=2)
 gif(vr.anim, "$filename.gif")
@@ -146,9 +176,9 @@ gif(vr.anim, "$filename.gif")
 ps = [vr.plots[i][:plot] for i = 1:length(vr.plots)]
 savefig(plot(ps...), "$filename.png")
 
-catch e
-  println("Crash:")# on $lr_$sigma_$batch_size_$n_gibbs")
-  println("$e")
-end
+#catch e
+#  println("Crash:")# on $lr_$sigma_$batch_size_$n_gibbs")
+#  println("$e")
+#end
 
 end
