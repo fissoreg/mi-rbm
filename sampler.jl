@@ -20,15 +20,15 @@ function get_positive_term(rbm::AbstractRBM{T,V,H}, vis::Array{T, 2},
 			   missing::Array{Int, 2};
 			   n_gibbs = 1) where {T,V,H}
 
-  h_pos = Array{typeof(vis[1]), 2}(size(rbm.W, 1), size(vis, 2))
-  v_miss = Array{typeof(vis[1]), 2}(size(missing)...)
+  h_pos = Array{typeof(vis[1]), 2}(undef, size(rbm.W, 1), size(vis, 2))
+  v_miss = Array{typeof(vis[1]), 2}(undef, size(missing)...)
 
   for m = 1:size(missing,2) 
     miss = missing[:, m]
     observed = setdiff(1:size(rbm.W, 2), miss)
 
     v_obs = vis[observed, m]
-    v_miss[:, m] = zeros(vis[miss, m])
+    v_miss[:, m] = zero(vis[miss, m])
 
     obs_bias = rbm.W[:, observed] * v_obs
 
@@ -51,14 +51,20 @@ end
 
 function persistent_contdiv(rbm::AbstractRBM{T,V,H}, vis::Array{T, 2}, ctx::Dict) where {T,V,H}
   d = size(vis, 1)
-  ratio = Boltzmann.@get(ctx, :ratio, 0.2)
-  missing = hcat((sample(1:d, floor(Int, d * ratio), replace = false) for i = 1:size(vis, 2))...)
+  missing = Boltzmann.@get(ctx, :mask, [])
+  if(missing == [])
+    ratio = Boltzmann.@get(ctx, :ratio, 0.2)
+    missing = sample(1:d, floor(Int, d * ratio), replace = false)
+  end
+
+  missing = repeat(missing, outer = (1, size(vis, 2)))
+  ctx[:missing] = missing
 
   # corrupting data - NOT NEEDED!!!!
   #vis[missing, :] = 0 #2 * rand(length(missing), size(vis,2)) - 1
 
   n_gibbs = Boltzmann.@get(ctx, :n_gibbs, 1)
-  persistent_chain = Boltzmann.@get_array(ctx, :persistent_chain, size(vis), vis)
+  persistent_chain = Boltzmann.@get_array(ctx, :persistent_chain, size(vis), Boltzmann.sample(V, randn(size(vis))))
   if size(persistent_chain) != size(vis)
     println("persistent_chain not initialized")
     # persistent_chain not initialized or batch size changed
@@ -71,7 +77,7 @@ function persistent_contdiv(rbm::AbstractRBM{T,V,H}, vis::Array{T, 2}, ctx::Dict
   v_pos, h_pos = get_positive_term(rbm, vis, missing; n_gibbs = n_gibbs)
   # take negative samples from "fantasy particles"
   _, _, v_neg, h_neg = Boltzmann.gibbs(rbm, persistent_chain, n_times=n_gibbs)
-  copy!(ctx[:persistent_chain], v_neg)
+  copyto!(ctx[:persistent_chain], v_neg)
   return v_pos, h_pos, v_neg, h_neg
 end
 
