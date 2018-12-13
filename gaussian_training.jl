@@ -1,10 +1,14 @@
 using MLDatasets
 using Images
 using Plots
+using Statistics
+using Distributions
+using LinearAlgebra
 
 pyplot()
 
-include("sampler.jl")
+include("sampler_mean.jl")
+include("utils.jl")
 include("../rbm/visual-reporter/reporter.jl")
 
 # we need to reshape weights/samples for visualization purposes
@@ -24,16 +28,16 @@ ns = 10000
 d = 784
 nh = 100
 #sigma = 0.001
-n_epochs = 2000
-lr = 1e-4
-batch_size = 40
+n_epochs = 200
+lr = 0.00001
+batch_size = 50
 randomize = true
-n_gibbs = 5
+n_gibbs = 1
 
 sigmas = [0.01]
-lrs = [0.001] #5e-4, 1e-4, 5e-5, 1e-5]
-bss = [100] #30, 20]
-gs = [3] #, 5]
+lrs = [0.0005] #5e-4, 1e-4, 5e-5, 1e-5]
+bss = [50] #30, 20]
+gs = [1] #, 5]
 
 ratios = [0.2] #, 0.05, 0.1, 0.2]
 
@@ -51,11 +55,11 @@ X = 255 * X
 
 nz = []
 for i=1:size(X,1)
-  push!(nz,find(x->x!=0,X[i,:]))
+  push!(nz,findall(x->x!=0,X[i,:]))
 end
 
 # Get normalized variables
-m = mean(X,2);
+m = mean(X, dims = 2);
 X = X.-m;
 σ = zeros(size(X,1))
 for i=1:size(X,1)
@@ -64,16 +68,29 @@ for i=1:size(X,1)
   end
 end
 # σ = std(X,2);
-σ[find(x->x<50,σ)] = 50
+idxs = findall(x->x<50,σ)
+for i in idxs
+  σ[i] = 50
+end
 X = X ./ σ;
-X[find(x->isnan(x),X)] = 0;
+idxs = findall(x->isnan(x),X)
+for i in idxs
+  X[i] = 0;
+end
 
 p = plot(reshape_mnist(X[:, 1:100]))
 savefig(p, "samples.png")
 
+Xm = Array{Union{typeof(X[1, 1]), Missing}, 2}(X)
+
+for i in 1:size(Xm, 2)
+  mask = missing_mask(d, ratios[1])
+  Xm[mask, i] = [missing for i = 1:length(mask)]
+end
+
 pre = Dict(
   :in => [:rbm],
-  :preprocessor => rbm -> svd(rbm.W),
+  :preprocessor => rbm -> (r = svd(rbm.W); (r.U, r.S, r.V)),
   :out => [:U, :s, :V]
 )
 
@@ -94,7 +111,24 @@ PL = Dict(
   :incremental => true,
   :leg => false
 )
-  
+
+dW = Dict(
+  :ys => [:dW_prev],
+  :transforms => [x -> norm(x)],
+  :title => "Gradient",
+  :incremental => true,
+  :leg => false
+)
+
+svs = zeros(nh)'
+
+SVs = Dict(
+  :ys => [:s],
+  :transforms => [s -> (global svs = vcat(svs, s'); svs)],
+  :title => "Singular Values",
+  :leg => false
+)
+
 SV = Dict(
   :ys => [:s for i=1:50],
   :transforms => [x -> x[i] for i=1:50],
@@ -111,25 +145,63 @@ features = Dict(
 )
 
 reconstructions = Dict(
-  :ys => [(:rbm, :X)],
-  :transforms => [(rbm, X) -> reshape_mnist(rbm.W' * rbm.W * X[:, 1:100])], #reshape_mnist(generate(rbm, X[:,1:100], n_gibbs=1))],
+  :ys => [(:rbm, :Xt)],
+  :transforms => [(rbm, X) -> reshape_mnist(hcat(X[:, 1:30], rbm.W' * rbm.W * X[:, 1:30]), r = 6)], #reshape_mnist(generate(rbm, X[:,1:100], n_gibbs=1))],
   :title => "Reconstructions",
   :ticks => nothing
 )
 
-function RE(rbm, X)
-  idxs = rand(1:size(X, 2), 100)
-  gen = generate(rbm, X[:,idxs], n_gibbs=1)
-
-  mean([norm(gen[:, i] - X[:, i]) for i = 1:100])
-end
+#function RE(rbm, X)
+#  idxs = rand(1:size(X, 2), 100)
+#  gen = generate(rbm, X[:,idxs], n_gibbs=1)
+#
+#  mean([norm(gen[:, i] - X[:, i]) for i = 1:100])
+#end
+#
+#re = Dict(
+#  :ys => [(:rbm, :X)],
+#  :transforms => [(rbm, X) -> RE(rbm, X)],
+#  :title => "Reconstruction error",
+#  :incremental => true,
+#  :leg => false
+#)
 
 re = Dict(
-  :ys => [(:rbm, :X)],
-  :transforms => [(rbm, X) -> RE(rbm, X)],
+  :ys => [(:rbm, :Xt, :missing)],
+  :transforms => [(rbm, X, mask) -> RE(rbm, X, mask; n_gibbs = 1)],
   :title => "Reconstruction error",
   :incremental => true,
-  :leg => false
+  :lab => "CD1"
+)
+
+re2 = Dict(
+  :ys => [(:rbm, :Xt, :missing)],
+  :transforms => [(rbm, X, mask) -> RE(rbm, X, mask; n_gibbs = 1000)],
+  :title => "Reconstruction error",
+  :incremental => true,
+  :lab => "CD1000"
+)
+
+#gen_activations(rbm, X; n_gibbs = 1) = Boltzmann.vis_means(rbm, Boltzmann.gibbs(rbm, X; n_times = 1)[4])
+
+sam = rand(1:size(X, 2), 1)
+
+function reconstruction(rbm, X, mask)
+  s = X[:, sam]
+  lossy = get_lossy(s, mask)
+  #gen_pin = gen_activations(rbm, s) 
+  gen_pin = generate(rbm, lossy, mask)
+  #obs = setdiff(1:size(X, 1), mask)
+  #gen_pin[obs] = s[obs]
+  (s, gen_pin)
+end
+
+
+gre = Dict(
+  :ys => [(:rbm, :Xt, :missing)],
+  :transforms => [(rbm, X, mask) -> reconstruction(rbm, X, mask)],
+  :title => "Reconstruction",
+  :linetype => :scatter
 )
 
 params = [(sigma, lr, bs, ng, ratio) for sigma in sigmas, lr in lrs, bs in bss, ng in gs, ratio in ratios]
@@ -150,11 +222,11 @@ rbm = RBM(Float64, Distributions.Normal, Boltzmann.IsingSpin, Boltzmann.IsingAct
 #rbm = GRBM(d, nh; sigma = sigma)#, X = X)
 
 # getting the reporter
-vr = VisualReporter(rbm, div(ns, batch_size) - 1, [weights, PL, re, SV, features, reconstructions, chain], pre = pre, init=Dict(:X => X, :persistent_chain => X[:, 1:batch_size]))
-
+vr = VisualReporter(rbm, div(ns, batch_size) - 1, [weights, PL, dW, re, SVs, features, reconstructions, gre], pre = pre, init=Dict(:Xt => X, :X => Xm, :persistent_chain => X[:, 1:batch_size], :dW_prev => zeros(nh, size(X, 1)), :missing => missing_mask(d, ratio)))
+#, SVs, features, reconstructions, chain
 #try
 
-fit(rbm, X;
+fit(rbm, Xm;
   n_epochs=n_epochs,
   lr=lr,
   batch_size=batch_size,
@@ -163,9 +235,10 @@ fit(rbm, X;
   sampler = persistent_contdiv,
   update = update_simple!,
   reporter=vr,
-  X = X,
+  X = Xm,
   ratio = ratio,
-  n_gibbs = n_gibbs
+  n_gibbs = n_gibbs,
+  dW_prev = zeros(nh, size(X, 1))
 )
 
 filename = "log/gaussian_$(ratio)_$(lr)_$(sigma)_$(batch_size)_$(n_gibbs)"
