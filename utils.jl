@@ -44,15 +44,22 @@ function generate(rbm, X, mask; n_gibbs = 1)
   
   keep = repeat(obs, outer = (1, size(X, 2)))
 
-  for i = 1:n_gibbs	  
+  for i = 1:(n_gibbs - 1)
     #lossy = gen_activations(rbm, lossy)
     #lossy, _ = get_positive_term(rbm, lossy, reshape(mask, length(mask), 1); n_gibbs = n_gibbs)
     #lossy, _ = get_positive_term(rbm, X; n_gibbs = n_gibbs)
     #lossy = generate(rbm, lossy, n_gibbs = 1)  
-    lossy = rbm.W' * rbm.W * lossy
+
+    lossy = rbm.W' * tanh.(rbm.W * lossy .+ rbm.hbias) .+ rbm.vbias
+    
     for j in 1:size(lossy, 2), k in 1:length(obs)
       lossy[obs[k], j] = X[obs[k], j]
-    end
+    end 
+  end
+
+  lossy = rbm.W' * tanh.(rbm.W * lossy .+ rbm.hbias) .+ rbm.vbias
+  for j in 1:size(lossy, 2), k in 1:length(obs)
+    lossy[obs[k], j] = X[obs[k], j]
   end
 
   lossy
@@ -60,5 +67,12 @@ end
 
 function RE(rbm, X, mask; n_gibbs = 1)
   gen = generate(rbm, X, mask, n_gibbs = n_gibbs)
-  mean((norm(gen[:, i] - X[:, i]) for i = 1:size(X, 2))) / sqrt(size(X, 1))
+  mean((norm(gen[:, i] - X[:, i]) for i = 1:size(X, 2))) / sqrt(length(mask))
+end
+
+# renormalized RE
+function rRE(rbm, X, mask; n_gibbs = 1)
+  gen = generate(rbm, X, mask, n_gibbs = n_gibbs)
+  #mean((norm(((gen[:, i] - X[:, i]) .+ m) .* s) for i = 1:size(X, 2))) / sqrt(length(mask))
+  mean((norm(((gen[:, i] - X[:, i])) * 0.1) for i = 1:size(X, 2))) / sqrt(length(mask))
 end
