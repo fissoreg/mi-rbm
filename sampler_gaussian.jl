@@ -21,7 +21,6 @@ function get_positive_term(rbm::AbstractRBM{T,V,H}, vis::Array{Union{T, Missing}
   miss = findall(x -> ismissing(x), vis)
 
   v_sample = map(x -> ismissing(x) ? 0.0 : x, vis)
-  #v_sample[miss] = zeros(size(miss))
 
   v_mean = []
   h_mean = []
@@ -29,8 +28,10 @@ function get_positive_term(rbm::AbstractRBM{T,V,H}, vis::Array{Union{T, Missing}
   for i = 1:n_gibbs
     h_sample, h_mean = sample_hiddens(rbm, v_sample)
     v_sample, v_mean = sample_visibles(rbm, h_sample)
-    v_mean[obs] = vis[obs]
+    v_sample[obs] = vis[obs]
   end
+
+  v_mean[obs] = vis[obs]
 
   v_mean, h_mean
 end
