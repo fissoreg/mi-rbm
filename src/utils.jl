@@ -4,18 +4,17 @@ using Statistics
 using LinearAlgebra
 using Images
 
-# we need to reshape weights/samples for visualization purposes
-function reshape_mnist(samples; c=10, r=10, h=28, w=28)
-  f = zeros(r*h,c*w)
-  for i=1:r, j=1:c
-    f[(i-1)*h+1:i*h,(j-1)*w+1:j*w] = reshape(samples[:,(i-1)*c+j],h,w)'
+# `c` is the number of classes
+function k_hot_encoding(labels, c)
+  kh = zeros(c, length(labels))
+  for j in 1:length(labels), i in labels[j]
+    kh[i, j] = 1
   end
-  w_min = minimum(samples)
-  w_max = maximum(samples)
-  scale = x -> (x-w_min)/(w_max-w_min)
-  map!(scale,f,f)
-  colorview(Gray,f)
+
+  kh
 end
+
+get_class(label) = findfirst(x -> x == 1, label)
 
 function missing_mask(d, ratio)
   sample(1:d, floor(Int, d * ratio), replace = false)
@@ -38,31 +37,21 @@ end
 
 gen_activations(rbm, X; n_gibbs = 1) = Boltzmann.vis_means(rbm, Boltzmann.bs(rbm, X; n_times = 1)[4])
 
-function generate(rbm, X, mask; n_gibbs = 1)
-  lossy = get_lossy(X, mask)
-  obs = setdiff(1:size(X, 1), mask)
-  
-  keep = repeat(obs, outer = (1, size(X, 2)))
+function generate(rbm::RBM{T}, X::Array{Union{T, Missing}, 2}; n_gibbs = 1) where T
+
+  obs = findall(x -> !ismissing(x), X)
+  lossy = map(x -> ismissing(x) ? 0.0 : x, X)
 
   for i = 1:(n_gibbs - 1)
-    #lossy = gen_activations(rbm, lossy)
-    #lossy, _ = get_positive_term(rbm, lossy, reshape(mask, length(mask), 1); n_gibbs = n_gibbs)
-    #lossy, _ = get_positive_term(rbm, X; n_gibbs = n_gibbs)
-    #lossy = generate(rbm, lossy, n_gibbs = 1)  
-
     lossy = rbm.W' * tanh.(rbm.W * lossy .+ rbm.hbias) .+ rbm.vbias
-    
-    for j in 1:size(lossy, 2), k in 1:length(obs)
-      lossy[obs[k], j] = X[obs[k], j]
-    end 
+    lossy[obs] = X[obs]
   end
 
   lossy = rbm.W' * tanh.(rbm.W * lossy .+ rbm.hbias) .+ rbm.vbias
-  for j in 1:size(lossy, 2), k in 1:length(obs)
-    lossy[obs[k], j] = X[obs[k], j]
-  end
-
+  lossy[obs] = X[obs]
+  
   lossy
+
 end
 
 function RE(rbm, X, mask; n_gibbs = 1)
@@ -70,7 +59,7 @@ function RE(rbm, X, mask; n_gibbs = 1)
   mean((norm(gen[:, i] - X[:, i]) for i = 1:size(X, 2))) / sqrt(length(mask))
 end
 
-# renormalized RE
+# renormalized RE - Just for yeast!
 function rRE(rbm, X, mask; n_gibbs = 1)
   gen = generate(rbm, X, mask, n_gibbs = n_gibbs)
   #mean((norm(((gen[:, i] - X[:, i]) .+ m) .* s) for i = 1:size(X, 2))) / sqrt(length(mask))

@@ -3,17 +3,17 @@ using StatsBase
 
 function sample_hiddens(rbm::AbstractRBM{T,V,H}, v_miss::Array{T, 1},
 			obs_bias::Array{T, 1}, missing::Array{Int, 1}) where {T,V,H}
-  signal = rbm.W[:, missing] * v_miss .+ rbm.hbias .+ obs_bias
+  signal = rbm.W[:, missing] * v_miss ./ size(rbm.W, 2) .+ rbm.hbias .+ obs_bias
   mean = rbm.activation(signal)
 
-  return Boltzmann.sample(H, reshape(mean, :, 1))
+  return Boltzmann.sample(H, reshape(mean, :, 1)), mean
 end
 
 function sample_visibles(rbm::AbstractRBM{T,V,H}, h_pos::Array{T, 1},
 			 missing::Array{Int, 1}) where {T,V,H}
-  signal = rbm.W[:, missing]' * h_pos .+ rbm.vbias[missing]
+  signal = rbm.W[:, missing]' * h_pos ./ size(rbm.W, 2) .+ rbm.vbias[missing]
   mean = rbm.activation(signal)
-  return Boltzmann.sample(V, reshape(mean, :, 1))
+  return Boltzmann.sample(V, reshape(mean, :, 1)), mean
 end
 
 function get_positive_term(rbm::AbstractRBM{T,V,H}, vis::Array{T, 2},
@@ -32,21 +32,25 @@ function get_positive_term(rbm::AbstractRBM{T,V,H}, vis::Array{T, 2},
 
     obs_bias = rbm.W[:, observed] * v_obs
 
-    h_pos[:, m] = sample_hiddens(rbm, v_miss[:, m], obs_bias, miss)
-    v_miss[:, m] = sample_visibles(rbm, h_pos[:, m], miss)
+    h_pos[:, m], _ = sample_hiddens(rbm, v_miss[:, m], obs_bias, miss)
+    v_miss[:, m], _ = sample_visibles(rbm, h_pos[:, m], miss)
+
+    mh = similar(h_pos)
+    mv = similar(v_miss)
 
     for i = 1:n_gibbs
-      h_pos[:, m] = sample_hiddens(rbm, v_miss[:, m], obs_bias, miss)
-      v_miss[:, m] = sample_visibles(rbm, h_pos[:, m], miss)
+      h_pos[:, m], mh[:, m] = sample_hiddens(rbm, v_miss[:, m], obs_bias, miss)
+      v_miss[:, m], mv[:, m] = sample_visibles(rbm, h_pos[:, m], miss)
     end
   end
 
   v_pos = deepcopy(vis)
   for i = 1:size(missing, 2)
-    v_pos[missing[:, i], i] = v_miss[:, i]
+    v_pos[missing[:, i], i] = mv[:, i] #v_miss[:, i]
   end
 
-  v_pos, h_pos
+  #v_pos, h_pos
+  mv, mh
 end
 
 function persistent_contdiv(rbm::AbstractRBM{T,V,H}, vis::Array{T, 2}, ctx::Dict) where {T,V,H}
