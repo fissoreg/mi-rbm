@@ -1,4 +1,6 @@
+using Boltzmann
 using MLDatasets
+using Distributions
 
 include("../src/sampler_gaussian.jl")
 include("../src/utils.jl")

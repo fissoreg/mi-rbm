@@ -1,7 +1,7 @@
 using DelimitedFiles
 
 function load_yeast(; set = "train")
-  data = readdlm("yeast_$set.svm", String)
+  data = readdlm("../datasets/yeast_$set.svm", String)
 
   y = data[:, 1]
   x = data[:, 2:end]

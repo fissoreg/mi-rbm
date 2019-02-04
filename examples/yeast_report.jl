@@ -1,3 +1,13 @@
+using Images
+using Plots
+using Statistics
+using LinearAlgebra
+using Distributions
+
+include("visual-reporter/reporter.jl")
+
+pyplot()
+
 pre = Dict(
   :in => [:rbm],
   :preprocessor => rbm -> (r = svd(rbm.W); (r.U, r.S, r.V)),
@@ -57,16 +67,17 @@ features = Dict(
 #mask = missing_mask(d, ratio)
 
 re = Dict(
-  :ys => [(:rbm, :Xt, :missing)],
-  :transforms => [(rbm, X, mask) -> vcat(rRE(rbm, X, mask), rRE(rbm, X, mask; n_gibbs = 100))],
+  :ys => [(:rbm, :Xt, :X)],
+  :transforms => [(rbm, X, Xm) -> vcat(rRE(rbm, X, Xm), rRE(rbm, X, Xm; n_gibbs = 100))],
   :title => "Reconstruction error",
   :incremental => true,
   :lab => ["CD1" "CD100"]
 )
 
+# NOTE: :Xt -> Xtrue, :X -> X with missing inputs
 re2 = Dict(
-  :ys => [(:rbm, :Xt, :missing)],
-  :transforms => [(rbm, X, mask) -> rRE(rbm, X, mask; n_gibbs = 100)],
+  :ys => [(:rbm, :Xt, :X)],
+  :transforms => [(rbm, X, Xm) -> rRE(rbm, X, Xm; n_gibbs = 100)],
   :title => "Reconstruction error",
   :incremental => true,
   :lab => "CD100"
@@ -76,70 +87,70 @@ gen_activations(rbm, X; n_gibbs = 1) = Boltzmann.vis_means(rbm, Boltzmann.gibbs(
 
 sam = rand(1:size(X, 2), 1)
 
-function reconstruction(rbm, X, mask; n_gibbs = 1)
+function reconstruction(rbm, X, ratio; n_gibbs = 1)
   s = X[:, sam]
-  lossy = get_lossy(s, mask)
+  lossy = get_lossy(s, ratio)
   #gen_pin = gen_activations(rbm, s) 
-  gen_pin = generate(rbm, lossy, mask; n_gibbs = n_gibbs)
+  gen_pin = generate(rbm, lossy; n_gibbs = n_gibbs)
   #obs = setdiff(1:size(X, 1), mask)
   #gen_pin[obs] = s[obs]
   (s, gen_pin)
 end
 
 gre = Dict(
-  :ys => [(:rbm, :Xt, :missing)],
-  :transforms => [(rbm, X, mask) -> reconstruction(rbm, X, mask)],
+  :ys => [(:rbm, :Xt, :ratio)],
+  :transforms => [(rbm, X, ratio) -> reconstruction(rbm, X, ratio)],
   :title => "Reconstruction",
   :linetype => :scatter
 )
 
 gre2 = Dict(
-  :ys => [(:rbm, :Xt, :missing)],
-  :transforms => [(rbm, X, mask) -> reconstruction(rbm, X, mask; n_gibbs = 100)],
+  :ys => [(:rbm, :Xt, :ratio)],
+  :transforms => [(rbm, X, ratio) -> reconstruction(rbm, X, ratio; n_gibbs = 100)],
   :title => "Recon - CD100",
   :linetype => :scatter
 )
 
-xrange = [0.1, 0.5, 0.9]
-
-rmse = Dict(
-  :ys => [(:rbm, :Xt, :Xtest)],
-  :transforms => [(rbm, Xt, Xtest) -> (repeat(xrange, inner = (1,2)), [rRE(rbm, x, missing_mask(d, r), n_gibbs = 100) for r in xrange, x in [Xt, Xtest]])],
-  :title => "RMSE",
-  :lab => ["Train" "Test"]
-)
-
-r10 = [0.1, 0.1]'
-
-rmse10 = Dict(
-  :ys => [(:rbm, :Xt, :Xtest)],
-  :transforms => [(rbm, Xt, Xtest) -> (global r10 = vcat(r10, [rRE(rbm, x, missing_mask(d, 0.1); n_gibbs = 100) for x in [Xt, Xtest]]'); r10)],
-  :title => "RMSE - 0.1",
-  :lab => ["Train" "Test"],
-  :ylims => [0.06, 0.11]
-
-)
-
-r50 = [0.1, 0.1]'
-
-rmse50 = Dict(
-  :ys => [(:rbm, :Xt, :Xtest)],
-  :transforms => [(rbm, Xt, Xtest) -> (global r50 = vcat(r50, [rRE(rbm, x, missing_mask(d, 0.5); n_gibbs = 100) for x in [Xt, Xtest]]'); r50)],
-  :title => "RMSE - 0.5",
-  :lab => ["Train" "Test"],
-  :ylims => [0.06, 0.11]
-
-)
-
-r90 = [0.1, 0.1]'
-
-rmse90 = Dict(
-  :ys => [(:rbm, :Xt, :Xtest)],
-  :transforms => [(rbm, Xt, Xtest) -> (global r90 = vcat(r90, [rRE(rbm, x, missing_mask(d, 0.9); n_gibbs = 100) for x in [Xt, Xtest]]'); r90)],
-  :title => "RMSE - 0.9",
-  :lab => ["Train" "Test"],
-  :ylims => [0.06, 0.11]
-)
+#xrange = [0.1, 0.5, 0.9]
+#
+#rmse = Dict(
+#  :ys => [(:rbm, :Xt, :Xtest)],
+#  :transforms => [(rbm, Xt, Xtest) -> (repeat(xrange, inner = (1,2)), [rRE(rbm, x, missing_mask(d, r), n_gibbs = 100) for r in xrange, x in [Xt, Xtest]])],
+#  :title => "RMSE",
+#  :lab => ["Train" "Test"]
+#)
+#
+#r10 = [0.1, 0.1]'
+#
+#rmse10 = Dict(
+#  :ys => [(:rbm, :Xt, :Xtest)],
+#  :transforms => [(rbm, Xt, Xtest) -> (global r10 = vcat(r10, [rRE(rbm, x, missing_mask(d, 0.1); n_gibbs = 100) for x in [Xt, Xtest]]'); r10)],
+#  :title => "RMSE - 0.1",
+#  :lab => ["Train" "Test"],
+#  :ylims => [0.06, 0.11]
+#
+#)
+#
+#r50 = [0.1, 0.1]'
+#
+#rmse50 = Dict(
+#  :ys => [(:rbm, :Xt, :Xtest)],
+#  :transforms => [(rbm, Xt, Xtest) -> (global r50 = vcat(r50, [rRE(rbm, x, missing_mask(d, 0.5); n_gibbs = 100) for x in [Xt, Xtest]]'); r50)],
+#  :title => "RMSE - 0.5",
+#  :lab => ["Train" "Test"],
+#  :ylims => [0.06, 0.11]
+#
+#)
+#
+#r90 = [0.1, 0.1]'
+#
+#rmse90 = Dict(
+#  :ys => [(:rbm, :Xt, :Xtest)],
+#  :transforms => [(rbm, Xt, Xtest) -> (global r90 = vcat(r90, [rRE(rbm, x, missing_mask(d, 0.9); n_gibbs = 100) for x in [Xt, Xtest]]'); r90)],
+#  :title => "RMSE - 0.9",
+#  :lab => ["Train" "Test"],
+#  :ylims => [0.06, 0.11]
+#)
 
 function project(V, s, X, idxs = [1, 2]) #i = 1, j = 2)
   p = [[dot(V[:, i], X[:, k]) for k in 1:size(X, 2)] for i in idxs]

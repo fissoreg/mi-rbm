@@ -1,4 +1,3 @@
-using Boltzmann
 using StatsBase
 
 function sample_hiddens(rbm::AbstractRBM{T,V,H}, vis::Array{T, 2}) where {T,V,H}

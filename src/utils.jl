@@ -20,6 +20,10 @@ function missing_mask(d, ratio)
   sample(1:d, floor(Int, d * ratio), replace = false)
 end
 
+function get_lossy(X, ratio::Float64)
+  map(x -> rand() < ratio ? missing : x, X)
+end
+
 function get_lossy(X, mask)
   lossy = deepcopy(X)
 
@@ -59,9 +63,9 @@ function RE(rbm, X, mask; n_gibbs = 1)
   mean((norm(gen[:, i] - X[:, i]) for i = 1:size(X, 2))) / sqrt(length(mask))
 end
 
-# renormalized RE - Just for yeast!
-function rRE(rbm, X, mask; n_gibbs = 1)
-  gen = generate(rbm, X, mask, n_gibbs = n_gibbs)
+function rRE(rbm, X, Xm; n_gibbs = 1)
+  gen = generate(rbm, Xm; n_gibbs = n_gibbs)
   #mean((norm(((gen[:, i] - X[:, i]) .+ m) .* s) for i = 1:size(X, 2))) / sqrt(length(mask))
-  mean((norm(((gen[:, i] - X[:, i])) * 0.1) for i = 1:size(X, 2))) / sqrt(length(mask))
+  r = length(findall(x -> ismissing(x), Xm[:, 1]))
+  mean((norm(((gen[:, i] - X[:, i])) * 0.1) for i = 1:size(X, 2))) / sqrt(r)
 end
