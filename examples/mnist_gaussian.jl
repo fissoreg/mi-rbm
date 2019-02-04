@@ -1,9 +1,10 @@
 using MLDatasets
 
-include("../src/sampler_mean.jl")
+include("../src/sampler_gaussian.jl")
 include("../src/utils.jl")
 
-ns = 1000
+# number of samples to use for training
+ns = 10000
 
 X, Y = MNIST.traindata()
 X = reshape(X, 784, size(X, 3))[:, 1:ns]
@@ -11,48 +12,29 @@ X = reshape(X, 784, size(X, 3))[:, 1:ns]
 d, ns = size(X)
 c = size(Y, 1)
 
-nh = 100
-sigma = 0.01
-n_epochs = 300
-lr = 1e-4
-batch_size = 50
+# hyperparameters
+nh = 100 # number of hidden units
+sigma = 0.001 # weights std initialization
+n_epochs = 1000
+lr = 1e-4 # learning rate
+batch_size = 100
 randomize = true
 n_gibbs = 1
-ratio = 0.5
-n_mon = 1
+ratio = 0.8 # fraction of missing variables
+n_mon = 20 # visualize training state every n_mon epochs
 
-X = 255*X
-nz = []
-for i=1:size(X,1)
-  push!(nz,findall(x->x!=0,X[i,:]))
-end
-
-# Get normalized variables
+# centering variables
 m = mean(X, dims = 2);
-X = X.-m;
-σ = zeros(size(X,1))
-for i=1:size(X,1)
-  if(!isempty(nz[i]))
-    σ[i] = std(X[i,nz[i]])
-  end
-end
-# σ = std(X,2);
-idxs = findall(x->x<50,σ)
-for i in idxs
-  σ[i] = 50
-end
-X = X ./ σ;
-idxs = findall(x->isnan(x),X)
-for i in idxs
-  X[i] = 0;
-end
+X = X .- m;
 
+# rescaling variance
+δ = 0.5
+σs = [std(filter(x -> x != 0, X[i, :])) for i in 1:size(X, 1)]
+map!(s -> isnan(s) ? 1 : s, σs, σs)
+map!(s -> s < δ ? δ : s, σs, σs)
+X = X ./ σs
 
-#m = mean(X, dims = 2)
-#s = mapslices(std, X, dims = 2)
-#X = (X .- m) ./ s
-#map!(x -> isnan(x) ? 0 : x, X, X)
-
+# introducing missing values
 Xtrue = deepcopy(X)
 
 X = Array{Union{Missing, Float64}, 2}(X)
@@ -62,15 +44,16 @@ for i in 1:size(X, 2)
   X[mask, i] = [missing for i = 1:length(mask)]
 end
 
-include("mnist_report.jl")
-
+# declaring a RBM with gaussian visible units and binary (+- 1) hidden units
 rbm = RBM(Float64, Distributions.Normal, Boltzmann.IsingSpin, Boltzmann.IsingActivation, d, nh; sigma = sigma)
 
-# getting the reporter
+# getting the reporter to visualize training state
+include("mnist_report.jl")
 plots_list = [ws, dW, PL, SVs, features, reconstructions]
 lossy = map(x -> ismissing(x) ? 0 : x, X)
 vr = VisualReporter(rbm, n_mon, plots_list, pre = pre, init = Dict(:X => X, :Xtrue => Xtrue, :lossy => lossy, :dW_prev => zeros(nh, size(X, 1))))
 
+# fitting the RBM
 fit(rbm, X;
   n_epochs = n_epochs,
   lr = lr,
@@ -82,9 +65,8 @@ fit(rbm, X;
   n_gibbs = n_gibbs
 )
 
-try
-  mkdir("log")
-end
+# saving the model and the training visualization
+try mkdir("log") catch end
 
 filename = "log/mnist_h$(nh)_r$(ratio)_lr$(lr)_bs$(batch_size)_ng$(n_gibbs)_e$(n_epochs)"
 save("$filename.jld", "w", rbm.W, "vbias", rbm.vbias, "hbias", rbm.hbias, "ratio", ratio)
